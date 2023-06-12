@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from helpers import dynamodb
 import boto3
 
@@ -38,6 +38,7 @@ def get_query_params(event: dict) -> dict[str, str | int | bool]:
         "to": datetime.utcnow().isoformat(),
         "limit": 1000,
         "inclusive": True,
+        "timezone_offset": 0,
     }
 
     # update params
@@ -49,15 +50,36 @@ def get_query_params(event: dict) -> dict[str, str | int | bool]:
             result["limit"] = int(v)
         elif k.lower() == "inclusive":
             result["inclusive"] = v.lower() != "false"
+        elif k.lower() == "timezone_offset":
+            result["timezone_offset"] = int(v)
 
     return result
 
 
-def handler(event: dict, context):
+def shift_dt(time: str, shift: int) -> str:
+    x = datetime.fromisoformat(time)
+    y = x - timedelta(hours=shift)
+    return y.isoformat()
+
+
+def handler(event: dict, context) -> dict[str, str]:
     print("Event: ", json.dumps(event))
 
     name = event["pathParameters"]["name"]
     params = get_query_params(event)
+    timezone_offset = params["timezone_offset"]
     results = get_items(name, params)
 
-    return {"statusCode": 200, "body": json.dumps({"results": results}, default=str)}
+    return {
+        "statusCode": 200,
+        "headers": {"content-type": "application/json"},
+        "body": json.dumps(
+            {
+                "results": [
+                    (shift_dt(x["datetime"], timezone_offset), x["weight"])
+                    for x in results
+                ]
+            },
+            default=str,
+        ),
+    }
